@@ -9,8 +9,8 @@ database and results are shown in a Streamlit app.
 | Step | What | State |
 |---|---|---|
 | 1 | Ticket database, synthetic data, database adapter, repo skeleton | done |
-| 2 | Rules engine (queue, ticket type, priority, VIP flag, confidence) | next |
-| 3 | Claude for low-confidence tickets | |
+| 2 | Rules engine (queue, ticket type, priority, VIP flag, confidence) | done |
+| 3 | Claude for low-confidence tickets | next |
 | 4 | Streamlit triage queue, detail view, metrics | |
 
 ## Quick start
@@ -40,8 +40,11 @@ creates the tables.
 app.py                 Streamlit entry point
 triage/config.py       Settings from .env / Streamlit secrets, column mapping
 triage/db.py           The only code that touches the database
+triage/rules.py        Rules engine
 config/source.yaml     Maps the source table's columns onto ticket fields
 config/vip_customers.yaml  Named VIP customers
+config/rules.yaml      Triage rules (patterns, weights, priorities, LLM threshold)
+scripts/evaluate.py    Accuracy report for the rules against the labels
 db/schema.sql          tickets, ticket_labels, triage_results
 scripts/seed.py        Synthetic ticket generator
 tests/                 pytest (database tests skip if no DB is reachable)
@@ -84,6 +87,46 @@ How the synthetic data is built:
   special types.
 - About 15% are deliberately ambiguous: two issues in one ticket, vague
   wording, or a message in French. These are the ones the LLM should pick up.
+
+## Rules engine
+
+`triage/rules.py` reads `config/rules.yaml` and, for each ticket:
+
+1. Scores the four special ticket types (outage, security, payment_failed,
+   cant_login). Each pattern that matches adds its weight. The highest score
+   above the type's `min_score` wins, and that type fixes the queue and the
+   base priority.
+2. Otherwise the ticket is `standard`, and the queue patterns pick a queue.
+   The base priority comes from the queue, adjusted by keyword overrides
+   such as "error 500" (P2) or "not urgent" (P4).
+3. Escalates: named VIPs go up one priority level, and enterprise tickets go
+   up one level unless they're P4.
+4. Gives a **confidence** from 0 to 1, based on how strongly the winner scored
+   and how far ahead of the runner-up it was. Mixed signals, such as a
+   security ticket that also talks about invoices, lower it. Tickets below
+   `llm_threshold` (0.6) are the ones Claude will handle in step 3.
+
+Every result lists the rules that fired and a one-line reason, so you can
+explain any decision.
+
+```bash
+python scripts/evaluate.py            # accuracy against the labels
+python scripts/evaluate.py --errors   # list each mistake and whether Claude would catch it
+python scripts/evaluate.py --save     # write the results to triage_results
+```
+
+Results on the 200 seeded tickets:
+
+| | |
+|---|---|
+| Decided by rules | 64.5% (129 tickets), all four fields correct on every one |
+| Sent to Claude | 35.5% (71 tickets), including all 30 ambiguous ones |
+| Rules accuracy if forced to decide everything | 87.5% |
+
+Take the 100% with a pinch of salt: the rules were tuned against this
+synthetic data, so they'll do worse on real tickets. That's what the
+confidence threshold is for, and `tests/test_rules.py` checks the rules
+against freshly written tickets that aren't in the seed data.
 
 ## Connecting to a different database
 

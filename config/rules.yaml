@@ -1,0 +1,121 @@
+# Triage rules. Patterns are case-insensitive regular expressions matched
+# against "subject + body". Each match adds its weight to a score; the
+# highest score wins, and the gap to the runner-up sets the confidence.
+#
+# Edit freely: the engine reloads this file on start, and
+# `python scripts/evaluate.py` shows how a change affects accuracy.
+
+# Tickets whose confidence falls below this go to Claude (step 3).
+llm_threshold: 0.6
+
+# Special ticket types. Each one fixes the queue and a base priority.
+# A ticket that matches none of them is "standard". A pattern may carry its
+# own `priority`: if every pattern that fired carries one, the most urgent
+# of those replaces the type's priority (e.g. phishing is less urgent than
+# a breach).
+ticket_types:
+  outage:
+    queue: Technical
+    priority: P1
+    min_score: 2
+    patterns:
+      - {name: outage-word,       weight: 3, pattern: '\boutage\b'}
+      - {name: site-down,         weight: 3, pattern: '\b(site|platform|service|system|everything|app) (is |are )?down\b'}
+      - {name: http-503,          weight: 2, pattern: '\b(503|502|504)\b|service unavailable'}
+      - {name: nothing-loads,     weight: 2, pattern: "\\bnothing loads\\b|\\bwon'?t (even )?load\\b"}
+      - {name: everyone-affected, weight: 1, pattern: '\b(all (of )?our users|everyone|whole (team|platform|company))\b'}
+      - {name: api-timeouts,      weight: 2, pattern: '\btimes? out on every request\b'}
+      - {name: ops-stopped,       weight: 1, pattern: '\b(operations|business) (has |have )?(stopped|blocked)\b|\bblocking our business\b'}
+
+  security:
+    queue: Account
+    priority: P1
+    min_score: 2
+    patterns:
+      - {name: security-word,  weight: 2, pattern: '\bsecurity\b'}
+      - {name: breach,         weight: 3, pattern: '\b(breach|compromised|hacked)\b'}
+      - {name: suspicious,     weight: 2, pattern: '\bsuspicious\b'}
+      - {name: phishing,       weight: 3, pattern: '\bphishing\b', priority: P2}
+      - {name: leaked-key,     weight: 3, pattern: '\b(api key|token|credentials?|password)s? (was |were )?(leaked|exposed)|\bleaked\b'}
+      - {name: unknown-admin,  weight: 3, pattern: '\b(admin|user)\b.*\bnobody\b.*\bcreated\b'}
+      - {name: other-co-data,  weight: 3, pattern: '\bsee (records|data) (belonging to|from) another\b'}
+      - {name: revoke,         weight: 1, pattern: '\b(revoke|rotate)\b'}
+
+  payment_failed:
+    queue: Billing
+    priority: P2
+    min_score: 2
+    patterns:
+      - {name: payment-failed,  weight: 3, pattern: '\bpayment (has )?failed\b|\bfailed payment\b'}
+      - {name: card-declined,   weight: 3, pattern: '\b(card|payment|renewal)\b.*\bdeclined\b'}
+      - {name: bounced,         weight: 3, pattern: '\b(direct debit|payment)\b.*\bbounced\b'}
+      - {name: non-payment,     weight: 2, pattern: '\bnon-?payment\b'}
+      - {name: retry-payment,   weight: 1, pattern: '\bretry (the|it|payment)\b'}
+
+  cant_login:
+    queue: Account
+    priority: P2
+    min_score: 2
+    patterns:
+      - {name: cant-login,     weight: 3, pattern: "\\b(can'?t|cannot|unable to|not able to) (log ?in|sign ?in)\\b|\\bcan'?t log in\\b"}
+      - {name: locked-out,     weight: 3, pattern: '\blocked (out|after)\b|\baccount (got |is )?locked\b'}
+      - {name: 2fa,            weight: 2, pattern: '\b(2fa|two-factor|mfa|verification code)\b'}
+      - {name: sso-failing,    weight: 2, pattern: '\bsso\b.*\b(fail|loop|error|can.?t)'}
+      - {name: reset-link,     weight: 2, pattern: '\breset link\b.*\bexpired\b|\bexpired\b.*\breset\b', priority: P3}
+      - {name: invalid-creds,  weight: 2, pattern: '\binvalid (credentials|password)\b'}
+      - {name: login-screen,   weight: 1, pattern: '\blogin (page|screen)\b', priority: P3}
+
+# Queues for standard tickets.
+queues:
+  Billing:
+    patterns:
+      - {name: invoice,   weight: 3, pattern: '\binvoices?\b'}
+      - {name: charged,   weight: 3, pattern: '\b(charged|billed|billing)\b'}
+      - {name: refund,    weight: 3, pattern: '\brefund'}
+      - {name: vat,       weight: 2, pattern: '\bvat\b'}
+      - {name: card,      weight: 2, pattern: '\b(payment method|card details|card expires)\b'}
+      - {name: statement, weight: 2, pattern: '\bstatement\b'}
+  Technical:
+    patterns:
+      - {name: error,     weight: 3, pattern: '\berror\b|\b500\b'}
+      - {name: bug,       weight: 3, pattern: '\bbug\b'}
+      - {name: crash,     weight: 3, pattern: '\bcrash'}
+      - {name: broken,    weight: 2, pattern: "\\b(broken|not working|doesn'?t work|does nothing|failing)\\b"}
+      - {name: slow,      weight: 2, pattern: '\b(slow|takes \d+ seconds)\b'}
+      - {name: wrong-data, weight: 2, pattern: "\\b(don'?t match|wrong numbers|disappeared|missing data)\\b"}
+      - {name: typo,      weight: 3, pattern: '\btypo\b'}
+      - {name: browser,   weight: 1, pattern: '\b(chrome|firefox|console|stack trace)\b'}
+  Account:
+    patterns:
+      - {name: add-user,    weight: 3, pattern: '\b(new starter|add (a )?(new )?user|give .* access)\b'}
+      - {name: leaver,      weight: 3, pattern: '\b(left the company|leaver|remove (their|the) account)\b'}
+      - {name: permissions, weight: 3, pattern: '\b(permission|role|admin rights)\b'}
+      - {name: account-email, weight: 2, pattern: '\bemail address on my account\b|\bchange (my|the) account email\b'}
+      - {name: password,    weight: 1, pattern: '\bpassword\b'}
+  Sales:
+    patterns:
+      - {name: upgrade,   weight: 3, pattern: '\bupgrade\b|\bnext tier\b|\bhigher plan\b|\bbigger plan\b'}
+      - {name: pricing,   weight: 3, pattern: '\b(pricing|quote)\b'}
+      - {name: seats,     weight: 2, pattern: '\b(more|fewer) seats\b'}
+      - {name: demo,      weight: 3, pattern: '\bdemo\b'}
+      - {name: contract,  weight: 2, pattern: '\b(contract|renewal|multi-year|terms)\b'}
+      - {name: plan,      weight: 1, pattern: '\b(enterprise plan|sla|vendors?|roll (this|it) out)\b'}
+  General:
+    patterns:
+      - {name: how-do-i,  weight: 2, pattern: '\bhow (do|can) (i|we)\b'}
+      - {name: question,  weight: 1, pattern: '\bquestion\b'}
+      - {name: docs,      weight: 2, pattern: '\b(docs|documentation|guides?|training)\b'}
+      - {name: feature-request, weight: 3, pattern: '\b(feature request|feature idea|would be (great|nice)|any plans|roadmap|suggestion)\b'}
+      - {name: feedback,  weight: 2, pattern: '\b(new layout|feedback)\b'}
+
+# Base priority for standard tickets, by queue, then keyword overrides.
+priority:
+  default_by_queue: {Billing: P3, Technical: P3, Account: P3, Sales: P3, General: P4}
+  overrides:            # first match wins; applied to standard tickets only
+    - {name: data-loss,       priority: P1, pattern: '\b(disappeared|data loss|lost (all|our) data)\b'}
+    - {name: hard-failure,    priority: P2, pattern: '\b(error 500|crash(es|ed)?|wrong numbers|don.?t match)\b'}
+    - {name: low-stakes,      priority: P4, pattern: "\\b(not urgent|minor thing|typo|copy of|pdf of|vat number|how do i|card expires)\\b"}
+    - {name: deadline,        priority: P2, pattern: '\b(deadline|asap|urgent)\b'}
+  # Escalations, applied after the base priority.
+  bump_vip: true                 # named VIPs go up one level
+  bump_enterprise_except: [P4]   # enterprise goes up one level unless P4
