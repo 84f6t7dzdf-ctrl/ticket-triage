@@ -15,11 +15,12 @@ def _found(word: str, text: str) -> bool:
     return re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE) is not None
 
 
-def classify(ticket: dict) -> dict:
-    """Route one ticket.
+def classify(ticket: dict, threshold: float = CONFIDENCE_THRESHOLD) -> dict:
+    """Route one ticket with the keyword rules.
 
-    `ticket` needs subject and body, and may have tier. Returns a dict with
-    queue, urgent, confidence and reason.
+    `ticket` needs subject and body, and may have tier. Below `threshold`
+    the queue is Review. Returns a dict with queue, urgent, confidence,
+    reason and decided_by ("rules").
     """
     subject = str(ticket.get("subject") or "")
     body = str(ticket.get("body") or "")
@@ -41,7 +42,8 @@ def classify(ticket: dict) -> dict:
     else:
         top_queue, confidence = None, 0.0
 
-    queue = top_queue if confidence >= CONFIDENCE_THRESHOLD else REVIEW
+    # No hits at all always means Review, whatever the threshold.
+    queue = top_queue if top_queue and confidence >= threshold else REVIEW
 
     urgent_words = [w for w in URGENT_WORDS if _found(w, subject) or _found(w, body)]
     is_vip = tier in VIP_TIERS
@@ -59,13 +61,49 @@ def classify(ticket: dict) -> dict:
     if is_vip:
         reason += f" VIP tier: {tier}."
 
-    return {"queue": queue, "urgent": urgent, "confidence": round(confidence, 2), "reason": reason}
+    return {"queue": queue, "urgent": urgent, "confidence": round(confidence, 2), "reason": reason,
+            "decided_by": "rules"}
 
 
-def classify_all(df: pd.DataFrame) -> pd.DataFrame:
-    """Add queue, urgent, confidence and reason columns to a ticket table."""
-    results = pd.DataFrame([classify(row) for row in df.to_dict("records")], index=df.index)
-    return pd.concat([df, results], axis=1)
+def classify_all(df: pd.DataFrame, threshold: float = CONFIDENCE_THRESHOLD, llm=None) -> pd.DataFrame:
+    """Add queue, urgent, confidence, reason and decided_by columns.
+
+    If `llm` is given, it is called for each ticket the rules send to Review.
+    It takes the ticket dict and returns a dict with queue, urgent and reason
+    (or None to leave the ticket in Review). Rule-based urgency is kept: a
+    ticket stays urgent if either the rules or the LLM say so.
+    """
+    rows = []
+    for ticket in df.to_dict("records"):
+        result = classify(ticket, threshold)
+        if llm is not None and result["queue"] == REVIEW:
+            answer = llm(ticket)
+            if answer:
+                result = {
+                    "queue": answer["queue"],
+                    "urgent": result["urgent"] or bool(answer["urgent"]),
+                    "confidence": result["confidence"],
+                    "reason": f"Claude: {answer['reason']} (Rules: {result['reason']})",
+                    "decided_by": "llm",
+                }
+        rows.append(result)
+    return pd.concat([df, pd.DataFrame(rows, index=df.index)], axis=1)
+
+
+def threshold_sweep(df: pd.DataFrame, steps: int = 21) -> pd.DataFrame:
+    """Rules-only trade-off: for each threshold, the share of tickets sent to
+    Review and (if labels exist) queue accuracy on the rest."""
+    rows = []
+    has_labels = "true_queue" in df.columns
+    for i in range(steps):
+        t = round(i / (steps - 1), 2)
+        res = classify_all(df, t)
+        decided = res[res["queue"] != REVIEW]
+        row = {"threshold": t, "sent to Review": (res["queue"] == REVIEW).mean()}
+        if has_labels:
+            row["queue accuracy"] = (decided["queue"] == decided["true_queue"]).mean() if len(decided) else None
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("threshold")
 
 
 def evaluate(df: pd.DataFrame) -> dict:
