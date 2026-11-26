@@ -1,0 +1,11 @@
+# Maps the source database onto the fields the app uses.
+# For a new database, change `table` and the right-hand column names.
+# Optional fields can be set to null if the source has no such column.
+table: tickets
+columns:
+  id: id
+  subject: subject
+  body: body
+  customer: customer
+  channel: channel
+  created_at: created_at
