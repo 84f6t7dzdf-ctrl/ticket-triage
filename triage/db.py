@@ -24,6 +24,7 @@ class Ticket:
     subject: str
     body: str
     customer: str | None = None
+    customer_tier: str | None = None
     channel: str | None = None
     created_at: datetime | None = None
 
@@ -31,13 +32,14 @@ class Ticket:
 @dataclass
 class TriageResult:
     ticket_id: str
-    category: str
-    priority: str
-    team: str
+    queue: str  # Billing | Technical | Account | Sales | General
+    ticket_type: str  # outage | cant_login | security | payment_failed | standard
+    priority: str  # P1..P4
     confidence: float
     decided_by: str  # rules | llm | human
     reasoning: str | None = None
     rules_fired: list[str] = field(default_factory=list)
+    is_vip: bool = False
     created_at: datetime | None = None
 
 
@@ -92,9 +94,10 @@ class TicketStore:
         rows = [
             {
                 "ticket_id": r.ticket_id,
-                "category": r.category,
+                "queue": r.queue,
+                "ticket_type": r.ticket_type,
                 "priority": r.priority,
-                "team": r.team,
+                "is_vip": r.is_vip,
                 "confidence": r.confidence,
                 "decided_by": r.decided_by,
                 "reasoning": r.reasoning,
@@ -106,8 +109,8 @@ class TicketStore:
             return 0
         sql = text(
             "INSERT INTO triage_results "
-            "(ticket_id, category, priority, team, confidence, decided_by, reasoning, rules_fired) "
-            "VALUES (:ticket_id, :category, :priority, :team, :confidence, :decided_by, "
+            "(ticket_id, queue, ticket_type, priority, is_vip, confidence, decided_by, reasoning, rules_fired) "
+            "VALUES (:ticket_id, :queue, :ticket_type, :priority, :is_vip, :confidence, :decided_by, "
             ":reasoning, CAST(:rules_fired AS JSONB))"
         )
         with self.results.begin() as conn:
@@ -117,7 +120,7 @@ class TicketStore:
     def latest_results(self) -> dict[str, TriageResult]:
         """Most recent triage decision per ticket, keyed by ticket id."""
         sql = text(
-            "SELECT DISTINCT ON (ticket_id) ticket_id, category, priority, team, "
+            "SELECT DISTINCT ON (ticket_id) ticket_id, queue, ticket_type, priority, is_vip, "
             "confidence, decided_by, reasoning, rules_fired, created_at "
             "FROM triage_results ORDER BY ticket_id, created_at DESC, id DESC"
         )

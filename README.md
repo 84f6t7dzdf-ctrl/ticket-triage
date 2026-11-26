@@ -9,7 +9,7 @@ database and results are shown in a Streamlit app.
 | Step | What | State |
 |---|---|---|
 | 1 | Ticket database, synthetic data, database adapter, repo skeleton | done |
-| 2 | Rules engine (category, priority, team, confidence) | next |
+| 2 | Rules engine (queue, ticket type, priority, VIP flag, confidence) | next |
 | 3 | Claude for low-confidence tickets | |
 | 4 | Streamlit triage queue, detail view, metrics | |
 
@@ -28,7 +28,7 @@ pytest                          # unit + database tests
 streamlit run app.py
 ```
 
-`python scripts/seed.py --reset` wipes and re-seeds. `-n 500` changes the count.
+`python scripts/seed.py --reset` drops and recreates the tables, then re-seeds. `-n 500` changes the count.
 
 No Docker? Any Postgres works (a local install, Neon, Supabase): create a
 database, set `DATABASE_URL` in `.env`, and run the seed script, which also
@@ -41,6 +41,7 @@ app.py                 Streamlit entry point
 triage/config.py       Settings from .env / Streamlit secrets, column mapping
 triage/db.py           The only code that touches the database
 config/source.yaml     Maps the source table's columns onto ticket fields
+config/vip_customers.yaml  Named VIP customers
 db/schema.sql          tickets, ticket_labels, triage_results
 scripts/seed.py        Synthetic ticket generator
 tests/                 pytest (database tests skip if no DB is reachable)
@@ -48,18 +49,41 @@ tests/                 pytest (database tests skip if no DB is reachable)
 
 ## Data model
 
-- **tickets**: the source data (id, subject, body, customer, channel, created_at).
-- **ticket_labels**: the true category, priority and team for each synthetic
-  ticket, plus an `is_ambiguous` flag. Only used to measure accuracy. A real
-  source database won't have it and the app doesn't need it.
+Each ticket has a **subject**, **body**, **customer**, **customer tier**
+(enterprise, business or starter) and **channel** (email, web, chat or phone).
+Triage gives it three things:
+
+| Output | Values |
+|---|---|
+| Queue | Billing, Technical, Account, Sales, General |
+| Ticket type | `outage`, `cant_login`, `security`, `payment_failed`, or `standard` for everything else |
+| Priority | P1 (most urgent) to P4 |
+
+On top of that, any ticket from a named VIP customer is flagged as VIP. The VIP
+list lives in `config/vip_customers.yaml`. VIP is a flag rather than a ticket
+type, because a VIP can also have an outage or a failed payment.
+
+Tables:
+
+- **tickets**: the source data.
+- **ticket_labels**: the correct queue, type, priority and VIP flag for each
+  synthetic ticket, plus an `is_ambiguous` flag. Only used to measure accuracy.
+  A real source database won't have it and the app doesn't need it.
 - **triage_results**: one row per decision, with `decided_by` (`rules`, `llm`
   or `human`), confidence, reasoning and the rules that fired. The app shows
   the latest row per ticket.
 
-The synthetic set has six categories (billing, bug, outage, access,
-feature_request, how_to), priorities P1 to P4, and five teams. About 15% of
-tickets are deliberately ambiguous: two issues in one ticket, vague wording, or
-a non-English message. These are the ones the LLM should pick up.
+How the synthetic data is built:
+
+- Each customer has a fixed tier, and the three VIPs are enterprise accounts.
+- Priority starts from the kind of issue. Outages and most security tickets
+  are P1, failed payments and login problems P2, and how-to questions and
+  feature requests P4. VIP tickets go up one level, and other enterprise
+  tickets go up one level unless they're P4.
+- About 70% of tickets are `standard` and the rest are split across the four
+  special types.
+- About 15% are deliberately ambiguous: two issues in one ticket, vague
+  wording, or a message in French. These are the ones the LLM should pick up.
 
 ## Connecting to a different database
 
@@ -78,6 +102,7 @@ Everything goes through `triage/db.py`, so switching databases is config only:
      subject: title
      body: description
      customer: account_name
+     customer_tier: plan
      channel: null
      created_at: opened_at
    ```

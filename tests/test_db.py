@@ -23,18 +23,20 @@ def test_tickets_are_seeded(store):
     assert len(tickets) == 5
     assert all(t.subject and t.body for t in tickets)
     assert isinstance(tickets[0].id, str)
+    assert all(t.customer_tier in ("enterprise", "business", "starter") for t in tickets)
 
 
 def test_results_round_trip(store):
     ticket = store.fetch_tickets(limit=1)[0]
     store.save_results([
-        TriageResult(ticket.id, "bug", "P3", "Engineering", 0.4, "rules", rules_fired=["kw:error"]),
-        TriageResult(ticket.id, "bug", "P2", "Engineering", 0.9, "llm", reasoning="mentions a crash"),
+        TriageResult(ticket.id, "Technical", "standard", "P3", 0.4, "rules", rules_fired=["kw:error"]),
+        TriageResult(ticket.id, "Account", "security", "P1", 0.9, "llm", reasoning="possible breach", is_vip=True),
     ])
     try:
         latest = store.latest_results()[ticket.id]
         assert latest.decided_by == "llm"
-        assert latest.priority == "P2"
+        assert (latest.queue, latest.ticket_type, latest.priority) == ("Account", "security", "P1")
+        assert latest.is_vip is True
     finally:
         with store.results.begin() as conn:
             conn.execute(text("DELETE FROM triage_results WHERE ticket_id = :id"), {"id": ticket.id})

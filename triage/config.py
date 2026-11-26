@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_FIELDS = ("id", "subject", "body")
-OPTIONAL_FIELDS = ("customer", "channel", "created_at")
+OPTIONAL_FIELDS = ("customer", "customer_tier", "channel", "created_at")
 
 load_dotenv(REPO_ROOT / ".env")
 
@@ -74,3 +74,12 @@ class Settings:
             source=SourceMapping.load(_get("SOURCE_CONFIG", "config/source.yaml")),
             anthropic_api_key=_get("ANTHROPIC_API_KEY"),
         )
+
+
+def load_vip_customers(path: str | Path = "config/vip_customers.yaml") -> set[str]:
+    """Lower-cased names of the named VIP customers."""
+    path = Path(path)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    data = yaml.safe_load(path.read_text()) or {}
+    return {name.strip().lower() for name in data.get("vip_customers") or []}

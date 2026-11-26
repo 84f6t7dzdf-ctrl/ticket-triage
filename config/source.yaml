@@ -7,5 +7,6 @@ columns:
   subject: subject
   body: body
   customer: customer
+  customer_tier: customer_tier
   channel: channel
   created_at: created_at
