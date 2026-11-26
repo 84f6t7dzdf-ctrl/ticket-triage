@@ -48,3 +48,55 @@ def test_evaluate_three_rows():
     assert ev["urgent_accuracy"] == pytest.approx(0.5)
     assert ev["confusion"].loc["Sales", REVIEW] == 1
     assert ev["confusion"].loc["Account", "Technical"] == 1
+
+
+def test_threshold_controls_review():
+    ticket = {"subject": "Error on the invoice page", "body": "", "tier": "Free"}  # 50/50 split
+    assert classify(ticket, threshold=0.6)["queue"] == REVIEW
+    assert classify(ticket, threshold=0.5)["queue"] in ("Billing", "Technical")
+    # No keyword hits stays in Review even at threshold 0.
+    assert classify({"subject": "Following up", "body": ""}, threshold=0.0)["queue"] == REVIEW
+
+
+def test_llm_fallback_only_for_review_pile():
+    from logic import classify_all
+    calls = []
+
+    def fake_llm(ticket):
+        calls.append(ticket["subject"])
+        return {"queue": "Technical", "urgent": False, "reason": "invoice page error is a bug"}
+
+    df = pd.DataFrame({
+        "subject": ["Refund for invoice", "Error on the invoice page", "Following up"],
+        "body": ["", "", ""],
+        "tier": ["Pro", "Free", "Enterprise"],
+    })
+    out = classify_all(df, 0.6, fake_llm)
+    assert calls == ["Error on the invoice page", "Following up"]
+    assert list(out["decided_by"]) == ["rules", "llm", "llm"]
+    assert out.loc[1, "queue"] == "Technical"
+    assert out.loc[2, "urgent"]  # VIP urgency from the rules is kept
+
+
+def test_llm_decline_leaves_ticket_in_review():
+    from logic import classify_all
+    df = pd.DataFrame({"subject": ["Following up"], "body": [""], "tier": ["Pro"]})
+    out = classify_all(df, 0.6, lambda t: None)
+    assert out.loc[0, "queue"] == REVIEW and out.loc[0, "decided_by"] == "rules"
+
+
+def test_llm_parses_structured_answer():
+    from types import SimpleNamespace
+    from llm import classify_with_llm
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(stop_reason="end_turn", content=[
+                SimpleNamespace(type="text", text='{"queue": "Account", "urgent": true, "reason": "Blocked from logging in."}')])
+
+    msgs = FakeMessages()
+    client = SimpleNamespace(beta=SimpleNamespace(messages=msgs))
+    answer = classify_with_llm({"subject": "Paid but can't get in", "body": "", "tier": "Pro"}, client)
+    assert answer == {"queue": "Account", "urgent": True, "reason": "Blocked from logging in."}
+    assert msgs.kwargs["output_config"]["format"]["schema"]["properties"]["queue"]["enum"][0] == "Billing"
