@@ -1,0 +1,21 @@
+id,subject,body,tier,true_queue,true_urgent
+1,Charged twice for November,"Hi, our card was charged twice for the November invoice. Please refund the duplicate.",Pro,Billing,false
+2,Need a VAT receipt,Our finance team needs a receipt showing our VAT number for last month's payment.,Free,Billing,false
+3,Refund for unused month,We cancelled in October but were still charged. Could we get a refund?,Pro,Billing,false
+4,Site is down - URGENT,"Every page returns an error and nothing is loading. Whole team is blocked, please fix ASAP.",Pro,Technical,true
+5,Export crashes the app,The app crashes every time I export a report. Looks like a bug since the last release.,Free,Technical,false
+6,Dashboard very slow,"The dashboard has been slow all week, around 20 seconds per page.",Enterprise,Technical,true
+7,Locked out of my account,I'm locked out after too many password attempts. Can you unlock my login?,Pro,Account,true
+8,Add access for new starter,Please give our new starter access with admin permission.,Free,Account,false
+9,Password reset not arriving,I asked for a password reset but no email has arrived and I can't log in.,Pro,Account,false
+10,Pricing for 50 more seats,We're growing fast. Can you send a quote for 50 more seats?,Pro,Sales,false
+11,Upgrade to annual plan,We'd like to upgrade to the annual plan. Who can talk us through the contract?,Enterprise,Sales,true
+12,Demo for our ops team,Could someone run a demo for our operations team next week?,Free,Sales,false
+13,How do I export to Excel?,Quick question: how do I export my data to Excel? Couldn't find it in the documentation.,Free,General,false
+14,Feature idea: dark mode,"Feedback from our team: a dark mode feature would be lovely.",Pro,General,false
+15,Training for new hires,Do you have training material for people joining next month?,Free,General,false
+16,Payment failed and now I can't log in,"Our payment failed yesterday and now nobody can log in. Is our access blocked because of billing?",Pro,Account,true
+17,Error on the invoice page,"I get an error when I open the invoice page, so I can't download my invoice.",Free,Technical,false
+18,Plan question,Quick question about our plan: what happens to our seats and billing if we downgrade?,Pro,Sales,false
+19,Following up,Still waiting to hear back from someone on this. Can you chase it?,Pro,General,false
+20,Not happy,The last two weeks with your product have been a nightmare. Sort it out.,Enterprise,General,true
