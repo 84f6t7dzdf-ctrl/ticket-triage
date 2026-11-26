@@ -1,0 +1,7 @@
+# Named VIP accounts. Any ticket from these customers is flagged as VIP
+# and escalated, whatever the queue or ticket type. Matching is
+# case-insensitive on the customer name.
+vip_customers:
+  - Meridian Bank
+  - Orbit Telecom
+  - Brightwater Health
